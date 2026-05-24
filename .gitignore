@@ -1,2 +1,2 @@
-agent/.env
-agent/opshook
+opsagent/.env
+opsagent/opshook

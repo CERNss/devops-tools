@@ -63,3 +63,53 @@ All app directories and rendered files are constrained to `APP_ROOT`.
 
 Supported actions are `deploy`, `render`, `compose`, `restart`,
 `container_health`, and `npm_proxy_host`.
+
+## Background Run
+
+Build the binary from the module root:
+
+```bash
+go build -o opsagent ./cmd/opsagent
+```
+
+For a server, prefer `systemd` so the process restarts after failure or reboot:
+
+```ini
+[Unit]
+Description=opsagent
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/opsagent
+EnvironmentFile=/opt/opsagent/.env
+ExecStart=/opt/opsagent/opsagent
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Install and start it:
+
+```bash
+sudo install -m 0755 opsagent /opt/opsagent/opsagent
+sudo install -m 0600 .env /opt/opsagent/.env
+sudo cp opsagent.service /etc/systemd/system/opsagent.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now opsagent
+sudo systemctl status opsagent
+```
+
+If the host already manages opsagent with Docker Compose, mount the Docker
+socket and app root, then run the binary inside a small container. This is
+convenient, but remember that mounting `/var/run/docker.sock` gives the
+container host-level Docker control.
+
+For temporary debugging only:
+
+```bash
+nohup ./opsagent > opsagent.log 2>&1 &
+```

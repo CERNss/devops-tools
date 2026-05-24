@@ -1,3 +1,3 @@
-module opshook
+module opsagent
 
 go 1.22

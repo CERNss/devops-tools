@@ -30,7 +30,10 @@ func main() {
 	}, httpClient)
 
 	apps := appsvc.New(cfg, docker.New(), npmClient)
-	server := httpapi.New(cfg.Secret, apps)
+	server := httpapi.New(httpapi.AuthConfig{
+		WebhookSecret: cfg.Secret,
+		APIKey:        cfg.APIKey,
+	}, apps)
 
 	log.Println("opsagent listening on", cfg.ListenAddr)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, server.Handler()))

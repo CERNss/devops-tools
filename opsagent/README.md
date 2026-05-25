@@ -4,9 +4,19 @@
 file rendering, container health checks, and Nginx Proxy Manager proxy host
 operations.
 
+## OpenAPI
+
+The OpenAPI 3 document is [openapi.yaml](./openapi.yaml).
+
 ## Authentication
 
-Every mutating API request must include:
+Protected endpoints accept either API key auth or webhook HMAC auth.
+
+For API key auth, set `API_KEY` and send:
+
+- `X-API-Key`: API key value.
+
+For webhook HMAC auth, send:
 
 - `X-Timestamp`: Unix seconds.
 - `X-Signature`: `sha256=<hex hmac>`.
@@ -19,6 +29,15 @@ The HMAC payload is:
 
 Use `AGENT_SECRET` as the HMAC-SHA256 key. Signed timestamps are accepted within
 a five minute window.
+
+API key example:
+
+```bash
+curl -s http://localhost:9090/api/compose/render \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d '{"app_name":"demo-app","compose_template":"services:\n  app:\n    image: {{IMAGE}}\n","env":{"IMAGE":"nginx:latest"}}'
+```
 
 ## Endpoints
 

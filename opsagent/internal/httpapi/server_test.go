@@ -28,7 +28,7 @@ func TestWebhookDeployRendersFiles(t *testing.T) {
 		fakeDocker{},
 		fakeNPM{},
 	)
-	server := New(secret, apps)
+	server := New(AuthConfig{WebhookSecret: secret}, apps)
 
 	body := `{"action":"deploy","data":{"app_name":"demo-app","compose_template":"services:\n  app:\n    image: {{IMAGE}}\n","env_file":"runtime.env","env":{"IMAGE":"nginx:latest","APP_ENV":"production"},"skip_docker":true,"skip_npm":true}}`
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
@@ -57,6 +57,35 @@ func TestWebhookDeployRendersFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(envFile), "APP_ENV=production") {
 		t.Fatalf("env file was not rendered: %s", string(envFile))
+	}
+}
+
+func TestAPIKeyDeployRendersFiles(t *testing.T) {
+	appRoot := t.TempDir()
+	apiKey := "test-api-key"
+	apps := appsvc.New(
+		config.Config{
+			AppRoot:          appRoot,
+			ProxyForwardMode: "host-port",
+			ProxyForwardHost: "127.0.0.1",
+		},
+		fakeDocker{},
+		fakeNPM{},
+	)
+	server := New(AuthConfig{WebhookSecret: "test-secret", APIKey: apiKey}, apps)
+
+	body := `{"app_name":"demo-app","compose_template":"services:\n  app:\n    image: {{IMAGE}}\n","env":{"IMAGE":"nginx:latest"},"skip_docker":true,"skip_npm":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/deploy", bytes.NewBufferString(body))
+	req.Header.Set("X-API-Key", apiKey)
+
+	rr := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(appRoot, "demo-app", "docker-compose.yml")); err != nil {
+		t.Fatal(err)
 	}
 }
 

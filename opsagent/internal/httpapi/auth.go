@@ -14,16 +14,28 @@ import (
 
 const signatureWindow = 5 * time.Minute
 
-func readAndVerify(r *http.Request, secret string) ([]byte, error) {
+type AuthConfig struct {
+	WebhookSecret string
+	APIKey        string
+}
+
+func readAndVerify(r *http.Request, auth AuthConfig) ([]byte, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
 
+	if auth.APIKey != "" {
+		got := r.Header.Get("X-API-Key")
+		if hmac.Equal([]byte(got), []byte(auth.APIKey)) {
+			return body, nil
+		}
+	}
+
 	ts := r.Header.Get("X-Timestamp")
 	sig := strings.TrimPrefix(r.Header.Get("X-Signature"), "sha256=")
 	if ts == "" || sig == "" {
-		return nil, errors.New("missing signature")
+		return nil, errors.New("missing api key or signature")
 	}
 
 	timestamp, err := strconv.ParseInt(ts, 10, 64)
@@ -38,7 +50,7 @@ func readAndVerify(r *http.Request, secret string) ([]byte, error) {
 	}
 
 	payload := ts + "." + string(body)
-	mac := hmac.New(sha256.New, []byte(secret))
+	mac := hmac.New(sha256.New, []byte(auth.WebhookSecret))
 	_, _ = mac.Write([]byte(payload))
 	expected := hex.EncodeToString(mac.Sum(nil))
 

@@ -1,0 +1,563 @@
+openapi: 3.0.3
+info:
+  title: opsagent API
+  version: 0.1.0
+  description: |
+    Signed deployment agent API for webhook-driven Docker Compose operations,
+    file rendering, container health checks, and Nginx Proxy Manager proxy hosts.
+
+    Protected endpoints accept either API key auth or webhook HMAC auth.
+    Webhook HMAC signs the raw request body using:
+
+    `<X-Timestamp>.<raw request body>`
+
+    with HMAC-SHA256 and the `AGENT_SECRET` value.
+servers:
+  - url: http://localhost:9090
+    description: Local opsagent
+security:
+  - ApiKeyAuth: []
+  - WebhookTimestamp: []
+    WebhookSignature: []
+tags:
+  - name: Health
+  - name: Webhook
+  - name: Deploy
+  - name: Compose
+  - name: Containers
+  - name: Nginx Proxy Manager
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Process health check
+      security: []
+      responses:
+        "200":
+          description: opsagent is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+              examples:
+                ok:
+                  value:
+                    ok: true
+                    message: ok
+  /webhook:
+    post:
+      tags: [Webhook]
+      summary: Action-based webhook entrypoint
+      description: Dispatches a signed webhook action to deploy, render, compose, restart, container health, or NPM proxy host handling.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookRequest"
+            examples:
+              deploy:
+                value:
+                  action: deploy
+                  data:
+                    app_name: demo-app
+                    domain: demo.example.com
+                    image: nginx:latest
+                    host_port: 18080
+                    container_port: 80
+                    env:
+                      APP_ENV: production
+      responses:
+        "200":
+          description: Action completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /deploy:
+    post:
+      tags: [Deploy]
+      summary: Backward-compatible deploy endpoint
+      requestBody:
+        $ref: "#/components/requestBodies/DeployRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/deploy:
+    post:
+      tags: [Deploy]
+      summary: Deploy an app
+      description: Renders compose and optional env files, runs Docker Compose pull/up unless skipped, and optionally upserts an NPM proxy host.
+      requestBody:
+        $ref: "#/components/requestBodies/DeployRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/compose/render:
+    post:
+      tags: [Compose]
+      summary: Render compose and env files
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileRenderRequest"
+            examples:
+              render:
+                value:
+                  app_name: demo-app
+                  compose_template: |
+                    services:
+                      app:
+                        image: {{IMAGE}}
+                  env:
+                    IMAGE: nginx:latest
+                    APP_ENV: production
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/compose/run:
+    post:
+      tags: [Compose]
+      summary: Run an allowed Docker Compose action
+      description: Allowed actions are `pull`, `up`, `restart`, `down`, `stop`, and `start`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComposeRunRequest"
+            examples:
+              restart:
+                value:
+                  app_name: demo-app
+                  action: restart
+                  services: [app]
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/apps/{app}/restart:
+    post:
+      tags: [Compose]
+      summary: Restart an app compose project
+      parameters:
+        - $ref: "#/components/parameters/AppName"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComposeRestartRequest"
+            examples:
+              restart:
+                value:
+                  services: [app]
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/containers/health:
+    post:
+      tags: [Containers]
+      summary: Inspect container health
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContainerHealthRequest"
+      responses:
+        "200":
+          description: Container status and optional Docker health value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/containers/{container}/health:
+    get:
+      tags: [Containers]
+      summary: Inspect container health by path
+      description: Requires API key auth or a webhook HMAC signature over an empty body.
+      parameters:
+        - name: container
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
+      responses:
+        "200":
+          description: Container status and optional Docker health value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/npm/proxy-hosts:
+    get:
+      tags: [Nginx Proxy Manager]
+      summary: List NPM proxy hosts
+      description: Requires API key auth or a webhook HMAC signature over an empty body.
+      responses:
+        "200":
+          description: Proxy host list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [Nginx Proxy Manager]
+      summary: Create or update an NPM proxy host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NPMProxyHostRequest"
+            examples:
+              proxyHost:
+                value:
+                  domain_names: [demo.example.com]
+                  forward_scheme: http
+                  forward_host: 127.0.0.1
+                  forward_port: 18080
+                  block_exploits: true
+                  websocket_upgrade: true
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags: [Nginx Proxy Manager]
+      summary: Delete an NPM proxy host
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: "Basic API key auth using the API_KEY environment variable."
+    WebhookTimestamp:
+      type: apiKey
+      in: header
+      name: X-Timestamp
+      description: Unix seconds included in the webhook HMAC payload.
+    WebhookSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: "sha256=<hex hmac> for <X-Timestamp>.<raw request body> using AGENT_SECRET."
+  parameters:
+    AppName:
+      name: app
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
+  requestBodies:
+    DeployRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/DeployRequest"
+          examples:
+            imageDeploy:
+              value:
+                app_name: demo-app
+                domain: demo.example.com
+                image: nginx:latest
+                host_port: 18080
+                container_port: 80
+                env:
+                  APP_ENV: production
+            templateDeploy:
+              value:
+                app_name: demo-app
+                compose_template: |
+                  services:
+                    app:
+                      image: {{IMAGE}}
+                env_file: runtime.env
+                env:
+                  IMAGE: nginx:latest
+                skip_docker: true
+                skip_npm: true
+  responses:
+    OK:
+      description: Operation completed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    Unauthorized:
+      description: Missing or invalid API key or webhook signature
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    InternalError:
+      description: Operation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+  schemas:
+    APIResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+        app_name:
+          type: string
+        domain:
+          type: string
+        data:
+          description: Endpoint-specific result payload.
+    WebhookRequest:
+      type: object
+      required: [action, data]
+      properties:
+        action:
+          type: string
+          enum: [deploy, render, compose, restart, container_health, npm_proxy_host]
+        data:
+          type: object
+          additionalProperties: true
+    DeployRequest:
+      type: object
+      required: [app_name]
+      properties:
+        app_name:
+          type: string
+          pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$"
+        directory:
+          type: string
+          description: Relative app directory under APP_ROOT. Defaults to app_name.
+        domain:
+          type: string
+          description: Required unless skip_npm is true.
+        image:
+          type: string
+          description: Required when compose_template is omitted.
+        host_port:
+          type: integer
+          minimum: 10000
+          maximum: 60000
+        container_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        env:
+          type: object
+          additionalProperties:
+            type: string
+        compose_file:
+          type: string
+          default: docker-compose.yml
+        env_file:
+          type: string
+          default: .env
+        compose_template:
+          type: string
+        env_template:
+          type: string
+        skip_docker:
+          type: boolean
+          default: false
+        skip_npm:
+          type: boolean
+          default: false
+    FileRenderRequest:
+      type: object
+      required: [app_name]
+      properties:
+        app_name:
+          type: string
+        directory:
+          type: string
+        compose_file:
+          type: string
+          default: docker-compose.yml
+        env_file:
+          type: string
+          default: .env
+        compose_template:
+          type: string
+        env_template:
+          type: string
+        env:
+          type: object
+          additionalProperties:
+            type: string
+    ComposeRunRequest:
+      type: object
+      required: [app_name, action]
+      properties:
+        app_name:
+          type: string
+        directory:
+          type: string
+        action:
+          type: string
+          enum: [pull, up, restart, down, stop, start]
+        services:
+          type: array
+          items:
+            type: string
+    ComposeRestartRequest:
+      type: object
+      properties:
+        directory:
+          type: string
+        services:
+          type: array
+          items:
+            type: string
+    ContainerHealthRequest:
+      type: object
+      required: [container]
+      properties:
+        container:
+          type: string
+    ContainerHealth:
+      type: object
+      properties:
+        container:
+          type: string
+        status:
+          type: string
+        health:
+          type: string
+        exit_code:
+          type: string
+    NPMProxyHostRequest:
+      type: object
+      required: [domain_names, forward_host, forward_port]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          description: Existing proxy host id. If omitted, opsagent matches by the first domain name.
+        domain_names:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            type: string
+        forward_host:
+          type: string
+        forward_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        forward_scheme:
+          type: string
+          enum: [http, https]
+          default: http
+        certificate_id:
+          type: integer
+          minimum: 0
+          default: 0
+        ssl_enabled:
+          type: boolean
+          default: false
+        ssl_forced:
+          type: boolean
+          default: false
+        http2_support:
+          type: boolean
+          default: false
+        block_exploits:
+          type: boolean
+          default: true
+        websocket_upgrade:
+          type: boolean
+          default: true
+        enabled:
+          type: boolean
+          default: true

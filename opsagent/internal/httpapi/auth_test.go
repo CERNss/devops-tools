@@ -12,7 +12,7 @@ import (
 )
 
 func TestReadAndVerify(t *testing.T) {
-	secret := "test-secret"
+	auth := AuthConfig{WebhookSecret: "test-secret"}
 	body := `{"app_name":"demo-app"}`
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	req, err := http.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
@@ -20,9 +20,9 @@ func TestReadAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Timestamp", ts)
-	req.Header.Set("X-Signature", sign(ts, body, secret))
+	req.Header.Set("X-Signature", sign(ts, body, auth.WebhookSecret))
 
-	got, err := readAndVerify(req, secret)
+	got, err := readAndVerify(req, auth)
 	if err != nil {
 		t.Fatalf("readAndVerify failed: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestReadAndVerify(t *testing.T) {
 }
 
 func TestReadAndVerifyRejectsBadSignature(t *testing.T) {
-	secret := "test-secret"
+	auth := AuthConfig{WebhookSecret: "test-secret"}
 	body := `{"app_name":"demo-app"}`
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	req, err := http.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
@@ -42,8 +42,29 @@ func TestReadAndVerifyRejectsBadSignature(t *testing.T) {
 	req.Header.Set("X-Timestamp", ts)
 	req.Header.Set("X-Signature", "bad")
 
-	if _, err := readAndVerify(req, secret); err == nil {
+	if _, err := readAndVerify(req, auth); err == nil {
 		t.Fatal("expected bad signature error")
+	}
+}
+
+func TestReadAndVerifyAcceptsAPIKey(t *testing.T) {
+	auth := AuthConfig{
+		WebhookSecret: "test-secret",
+		APIKey:        "test-api-key",
+	}
+	body := `{"app_name":"demo-app"}`
+	req, err := http.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-API-Key", auth.APIKey)
+
+	got, err := readAndVerify(req, auth)
+	if err != nil {
+		t.Fatalf("readAndVerify failed: %v", err)
+	}
+	if string(got) != body {
+		t.Fatalf("body mismatch: got %q", string(got))
 	}
 }
 

@@ -11,16 +11,16 @@ import (
 )
 
 type Server struct {
-	secret string
-	apps   *appsvc.Service
-	mux    *http.ServeMux
+	auth AuthConfig
+	apps *appsvc.Service
+	mux  *http.ServeMux
 }
 
-func New(secret string, apps *appsvc.Service) *Server {
+func New(auth AuthConfig, apps *appsvc.Service) *Server {
 	s := &Server{
-		secret: secret,
-		apps:   apps,
-		mux:    http.NewServeMux(),
+		auth: auth,
+		apps: apps,
+		mux:  http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -190,7 +190,7 @@ func (s *Server) handleNPMProxyHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readSignedJSON(w http.ResponseWriter, r *http.Request, out any) bool {
-	body, err := readAndVerify(r, s.secret)
+	body, err := readAndVerify(r, s.auth)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, api.Response{OK: false, Message: err.Error()})
 		return false
@@ -203,7 +203,7 @@ func (s *Server) readSignedJSON(w http.ResponseWriter, r *http.Request, out any)
 }
 
 func (s *Server) verifyRequest(r *http.Request) error {
-	body, err := readAndVerify(r, s.secret)
+	body, err := readAndVerify(r, s.auth)
 	if err != nil {
 		return err
 	}

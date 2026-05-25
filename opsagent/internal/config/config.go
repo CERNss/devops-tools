@@ -13,6 +13,7 @@ import (
 type Config struct {
 	ListenAddr string
 	Secret     string
+	APIKey     string
 	AppRoot    string
 
 	NPMBaseURL  string
@@ -31,6 +32,7 @@ func Load() (Config, error) {
 	return Config{
 		ListenAddr:       env("LISTEN_ADDR", ":9090"),
 		Secret:           env("AGENT_SECRET", "change-me"),
+		APIKey:           env("API_KEY", ""),
 		AppRoot:          env("APP_ROOT", "/opt/apps"),
 		NPMBaseURL:       strings.TrimRight(env("NPM_BASE_URL", "http://127.0.0.1:81"), "/"),
 		NPMEmail:         env("NPM_EMAIL", "admin@example.com"),
